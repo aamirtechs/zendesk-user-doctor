@@ -1,0 +1,4 @@
+user_id,name,email,role,email_verified,suspended,created_at,last_login,open_tickets,total_tickets,last_ticket_date
+U-401,Dan Evans,dan.evans@example.com,end-user,yes,no,2023-03-01,2023-04-01,0,0,
+U-402,Emma Foster,emma.foster@example.com,end-user,no,no,2026-10-20,2026-11-17,0,1,2026-11-01
+U-403,Karen Lee,karen.lee@example.com,end-user,yes,yes,2022-11-11,2024-01-01,0,1,2024-01-01

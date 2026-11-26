@@ -1,0 +1,23 @@
+user_id,name,email,role,email_verified,suspended,created_at,last_login,open_tickets,total_tickets,last_ticket_date
+U-101,Alice Morgan,alice.morgan@example.com,end-user,yes,no,2024-01-10,2026-11-15,0,5,2026-11-10
+U-102,Ben Carter,ben.carter@example.com,end-user,no,no,2024-02-01,2026-11-12,2,4,2026-11-12
+U-103,Cara Diaz,cara.diaz@example.com,end-user,yes,yes,2023-06-15,2026-10-20,3,8,2026-11-05
+U-104,Dan Evans,dan.evans@example.com,end-user,yes,no,2023-03-01,2023-04-01,0,0,
+U-105,Emma Foster,emma.foster@example.com,end-user,no,no,2026-10-20,2026-11-17,0,1,2026-11-01
+U-106,Frank Green,frank.green@example.com,end-user,yes,no,2024-05-05,2026-11-14,0,3,2026-11-13
+U-107,Grace Hall,grace.hall@example.com,end-user,yes,no,2024-07-07,2026-11-10,1,2,2026-11-09
+U-108,Henry Ivers,henry.ivers@example.com,end-user,yes,no,2024-08-08,2026-11-08,0,6,2026-11-02
+U-109,Ivy Jones,ALICE.MORGAN@EXAMPLE.COM,end-user,yes,no,2025-01-01,2026-11-16,0,2,2026-11-15
+U-110,Jack King,jack.king@example.com,agent,yes,no,2023-09-09,2026-11-17,5,20,2026-11-17
+U-111,Karen Lee,karen.lee@example.com,end-user,yes,yes,2022-11-11,2024-01-01,0,1,2024-01-01
+U-112,Leo Martin,leo.martin@example.com,end-user,yes,no,2024-04-04,2026-11-11,0,0,
+U-113,Mia Nelson,mia.nelson@example.com,end-user,yes,no,2026-11-15,2026-11-17,0,0,
+U-114,Noah Owens,noah.owens@example.com,end-user,yes,no,2024-03-03,2026-11-06,4,2,2026-11-06
+U-115,Olivia Park,not-an-email,end-user,yes,no,2024-06-06,2026-11-05,0,1,2026-11-04
+U-116,Peter Quinn,peter.quinn@example.com,end-user,yes,no,not-a-date,2026-11-03,0,2,2026-11-02
+U-117,Quinn Ross,quinn.ross@example.com,end-user,yes,no,2026-12-05,2026-11-01,0,1,2026-11-01
+U-101,Rosa Stone,rosa.stone@example.com,end-user,yes,no,2025-05-05,2026-11-07,0,3,2026-11-06
+U-118,Sam Turner,sam.turner@example.com,end-user,yes,no,2024-09-09,2026-11-04,0,1,2026-11-03,extra-field
+,Tom Underwood,tom.underwood@example.com,end-user,yes,no,2024-10-10,2026-11-02,0,1,2026-11-01
+U-119,Uma Vance,uma.vance@example.com,end-user,yes,no,2024-11-11,2026-11-01,abc,1,2026-10-30
+U-120,Victor Wade,victor.wade@example.com,superuser,yes,no,2024-12-12,2026-11-01,0,1,2026-10-29

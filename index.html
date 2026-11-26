@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zendesk User Doctor - AamirTechs</title>
+<style>
+:root{--navy:#0b1f3a;--gold:#d4a72c;--bg:#f6f8fb;--ink:#1c2733;--muted:#5b6b7c;--line:#d9e1ea}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:28px 20px;border-bottom:4px solid var(--gold)}
+header .wrap{max-width:880px;margin:0 auto}
+header h1{margin:0 0 6px;font-size:1.6rem}
+header p{margin:0;color:#c8d4e4}
+main{max-width:880px;margin:24px auto;padding:0 20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(11,31,58,.08)}
+label{display:block;font-weight:600;margin:14px 0 6px}
+.card>label:first-child{margin-top:0}
+textarea{width:100%;min-height:180px;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem}
+input[type=text],input[type=number],select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.95rem;width:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:4px}
+.grid label{margin:0 0 6px}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+button{background:var(--navy);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:.95rem;cursor:pointer}
+button.alt{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+button.gold{background:var(--gold);color:#0b1f3a;font-weight:600}
+pre{background:#0b1f3a;color:#eef3f9;border-radius:8px;padding:16px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;min-height:60px;font-size:.85rem}
+footer{max-width:880px;margin:0 auto 32px;padding:0 20px;color:var(--muted);font-size:.9rem}
+footer a{color:var(--navy)}
+.hint{color:var(--muted);font-size:.85rem;margin-top:6px;font-weight:400}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>Zendesk User Doctor</h1><p>Audit a Zendesk end-user CSV export for duplicate users, unverified emails, suspended users with open tickets, and users with no tickets.</p></div></header>
+<main><div class="card">
+<label for="file">Input CSV file</label>
+<input type="file" id="file" accept=".csv,text/csv">
+<label for="input">Or paste the CSV</label>
+<textarea id="input" spellcheck="false" placeholder="Paste a Zendesk end-user CSV export here, or load the sample."></textarea>
+<label>Options</label>
+<div class="grid">
+<div><label for="opt-stale">Stale days <span class="hint">(--stale-days)</span></label><input type="number" id="opt-stale" step="1" value="90"></div>
+<div><label for="opt-asof">As of date <span class="hint">(--as-of)</span></label><input type="text" id="opt-asof" value="2026-11-18"></div>
+<div><label for="opt-unverified">Unverified as error <span class="hint">(--unverified-error)</span></label><input type="checkbox" id="opt-unverified"></div>
+</div>
+<div class="row"><button class="gold" id="run" type="button">Run check</button><button class="alt" id="sample" type="button">Load sample</button><button class="alt" id="sample-clean" type="button">Load clean sample</button><button class="alt" id="sample-warnings" type="button">Load warnings-only sample</button><button class="alt" id="download" type="button">Download report</button></div>
+<label for="out">Report</label>
+<pre id="out">Your report will appear here.</pre>
+</div></main>
+<footer>
+<p>Built by AamirTechs. <a href="https://aamirtechs.github.io/">All tools</a> | <a href="https://github.com/aamirtechs/zendesk-user-doctor">Source</a></p>
+<p>Privacy: this tool runs 100% in your browser, nothing is uploaded.</p>
+</footer>
+<script id="core">
+// Pure logic port of zendesk_user_doctor.py. No DOM access in this block.
+function pyRepr(v) {
+  if (v === null || v === undefined) return "None";
+  if (typeof v === "string") {
+    var hasSingle = v.indexOf("'") >= 0, hasDouble = v.indexOf('"') >= 0;
+    var quote = (hasSingle && !hasDouble) ? '"' : "'";
+    var out = "";
+    for (var i = 0; i < v.length; i++) {
+      var ch = v[i], code = v.charCodeAt(i);
+      if (ch === "\\") out += "\\\\";
+      else if (ch === quote) out += "\\" + quote;
+      else if (ch === "\n") out += "\\n";
+      else if (ch === "\r") out += "\\r";
+      else if (ch === "\t") out += "\\t";
+      else if (code < 32 || code === 127) out += "\\x" + ("0" + code.toString(16)).slice(-2);
+      else out += ch;
+    }
+    return quote + out + quote;
+  }
+  return String(v);
+}
+function parseCsvRows(text) {
+  text = String(text == null ? "" : text).replace(/^\uFEFF/, "");
+  var rows = [], row = [], field = "", inQuotes = false, atFieldStart = true, i, ch;
+  for (i = 0; i < text.length; i++) {
+    ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"' && atFieldStart) { inQuotes = true; atFieldStart = false; }
+    else if (ch === ",") { row.push(field); field = ""; atFieldStart = true; }
+    else if (ch === "\r") { /* handled by \n; a lone \r also ends the row below */ if (text[i + 1] !== "\n") { row.push(field); field = ""; rows.push(row); row = []; atFieldStart = true; } }
+    else if (ch === "\n") { row.push(field); field = ""; rows.push(row); row = []; atFieldStart = true; }
+    else { field += ch; atFieldStart = false; }
+  }
+  if (field !== "" || row.length || inQuotes) { row.push(field); rows.push(row); }
+  return rows;
+}
+function daysInMonth(y, mo) {
+  return [31, (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0)) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+}
+function makeTs(y, mo, d, hh, mi, ss, micro, offsetMin) {
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
+  if (hh > 23 || mi > 59 || ss > 59) return null;
+  if (offsetMin === null || offsetMin === undefined) offsetMin = 0;
+  if (offsetMin < -1439 || offsetMin > 1439) return null;
+  var wallUs = (((Date.UTC(y, mo - 1, d, hh, mi, ss) / 1000) * 1000000) + micro);
+  return { us: wallUs - offsetMin * 60000000, wallUs: wallUs };
+}
+function parseTimestamp(text) {
+  if (text === null || text === undefined) return null;
+  text = String(text).trim();
+  if (!text) return null;
+  var candidate = text;
+  var m;
+  // datetime.fromisoformat path (with trailing Z handled like Python).
+  var isoText = candidate;
+  if (/[Zz]$/.test(isoText)) isoText = isoText.slice(0, -1) + "+00:00";
+  m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?([+-]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?)?$/.exec(isoText);
+  if (m && (m[4] !== undefined || m[8] === undefined)) {
+    var micro = 0;
+    if (m[7]) micro = parseInt((m[7] + "000000").slice(0, 6), 10);
+    var off = 0;
+    if (m[8]) {
+      var om = /^([+-])(\d{2}):(\d{2})/.exec(m[8]);
+      off = (parseInt(om[2], 10) * 60 + parseInt(om[3], 10)) * (om[1] === "-" ? -1 : 1);
+    }
+    var ts = makeTs(+m[1], +m[2], +m[3], m[4] ? +m[4] : 0, m[5] ? +m[5] : 0, m[6] ? +m[6] : 0, micro, off);
+    if (ts) return ts;
+  }
+  // strptime fallback formats, in the Python order.
+  var fmts = [
+    [/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{1,2}):(\d{1,2})$/, "ymd"],
+    [/^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2}):(\d{1,2})$/, "ymd"],
+    [/^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{1,2})$/, "ymd"],
+    [/^(\d{4})-(\d{1,2})-(\d{1,2})$/, "ymd"],
+    [/^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/, "dmy"],
+    [/^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/, "mdy"],
+    [/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, "dmy"],
+    [/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, "mdy"]
+  ];
+  for (var i = 0; i < fmts.length; i++) {
+    m = fmts[i][0].exec(candidate);
+    if (!m) continue;
+    var y, mo, d;
+    if (fmts[i][1] === "ymd") { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if (fmts[i][1] === "dmy") { d = +m[1]; mo = +m[2]; y = +m[3]; }
+    else { mo = +m[1]; d = +m[2]; y = +m[3]; }
+    var base = fmts[i][1] === "ymd" ? 4 : 4;
+    var hh = m[base] !== undefined ? +m[base] : 0;
+    var mi = m[base + 1] !== undefined ? +m[base + 1] : 0;
+    var ss = m[base + 2] !== undefined ? +m[base + 2] : 0;
+    var t2 = makeTs(y, mo, d, hh, mi, ss, 0, 0);
+    if (t2) return t2;
+  }
+  return null;
+}
+function fmtDate(ts) {
+  var dt = new Date(ts.wallUs / 1000);
+  function p(n, w) { var s = String(n); while (s.length < w) s = "0" + s; return s; }
+  return p(dt.getUTCFullYear(), 4) + "-" + p(dt.getUTCMonth() + 1, 2) + "-" + p(dt.getUTCDate(), 2);
+}
+function fmtDateTime(ts) {
+  var dt = new Date(ts.wallUs / 1000);
+  function p(n, w) { var s = String(n); while (s.length < w) s = "0" + s; return s; }
+  return fmtDate(ts) + " " + p(dt.getUTCHours(), 2) + ":" + p(dt.getUTCMinutes(), 2);
+}
+function fmt1(x) { return x.toFixed(1); }
+function parseCount(text) {
+  if (text === null || text === undefined) return null;
+  text = String(text).trim();
+  if (!text) return null;
+  var cleaned = text.replace(/,/g, "").trim();
+  if (!/^[+-]?\d(_?\d)*$/.test(cleaned)) return null;
+  var value = parseInt(cleaned.replace(/_/g, ""), 10);
+  if (value < 0) return null;
+  return value;
+}
+var YES_VALUES = { "yes": 1, "y": 1, "true": 1, "1": 1, "verified": 1, "confirmed": 1 };
+var NO_VALUES = { "no": 1, "n": 1, "false": 1, "0": 1, "unverified": 1, "not verified": 1 };
+function parseYesNo(text) {
+  if (text === null || text === undefined) return null;
+  var value = String(text).trim().toLowerCase();
+  if (!value) return null;
+  if (YES_VALUES[value]) return true;
+  if (NO_VALUES[value]) return false;
+  return null;
+}
+function normalizeRole(text) {
+  if (text === null || text === undefined) return "";
+  var role = String(text).trim().toLowerCase().replace(/_/g, " ").replace(/-/g, " ");
+  role = role.split(/\s+/).filter(function (p) { return p !== ""; }).join(" ");
+  if (["end user", "enduser", "user", "customer", "requester"].indexOf(role) >= 0) return "end-user";
+  if (["agent", "support agent"].indexOf(role) >= 0) return "agent";
+  if (["admin", "administrator"].indexOf(role) >= 0) return "admin";
+  return "";
+}
+var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function F(user, rule, severity, message) { return { user: user, rule: rule, severity: severity, message: message }; }
+function findingStr(f) { return f.severity.toUpperCase() + " [" + f.rule + "] " + f.user + ": " + f.message; }
+function findColumn(headerSet, names) {
+  for (var i = 0; i < names.length; i++) if (headerSet[names[i]] !== undefined) return names[i];
+  return null;
+}
+window.runTool = function (inputText, options) {
+  options = options || {};
+  var staleDays = options.staleDays === undefined || options.staleDays === "" ? 90 : parseInt(options.staleDays, 10);
+  var unverifiedError = !!options.unverifiedError;
+  var asOfText = options.asOf === undefined || options.asOf === "" ? "2026-11-18" : String(options.asOf);
+  var asOf = parseTimestamp(asOfText);
+  if (asOf === null) return "error: --as-of " + pyRepr(asOfText) + " is not a readable date\n";
+  var rows = parseCsvRows(inputText || "");
+  if (!rows.length) return "error: input is empty, no header row found\n";
+  var header = rows[0].map(function (n) { return String(n).trim(); });
+  var headerSet = {};
+  header.forEach(function (n, i) { headerSet[n] = i; });
+  var idColumn = findColumn(headerSet, ["user_id", "id", "user"]);
+  if (idColumn === null) return "error: input has no user_id or id column (header is: " + header.join(", ") + ")\n";
+  var emailColumn = findColumn(headerSet, ["email", "email_address", "user_email"]);
+  if (emailColumn === null) return "error: input has no email column (header is: " + header.join(", ") + ")\n";
+  var nameColumn = findColumn(headerSet, ["name", "full_name", "user_name"]);
+  var roleColumn = findColumn(headerSet, ["role", "user_role", "type"]);
+  var verifiedColumn = findColumn(headerSet, ["email_verified", "verified", "is_verified", "verification_status"]);
+  var suspendedColumn = findColumn(headerSet, ["suspended", "is_suspended", "suspension_status"]);
+  var createdColumn = findColumn(headerSet, ["created_at", "created", "date_created", "signup_date"]);
+  var loginColumn = findColumn(headerSet, ["last_login", "last_sign_in", "last_login_at", "last_active"]);
+  var openColumn = findColumn(headerSet, ["open_tickets", "open_ticket_count", "open_requests"]);
+  var totalColumn = findColumn(headerSet, ["total_tickets", "ticket_count", "total_requests"]);
+  var lastTicketColumn = findColumn(headerSet, ["last_ticket_date", "last_ticket", "last_request_date"]);
+  function cell(cells, col) { return col === null ? "" : (cells[col] !== undefined ? cells[col] : ""); }
+  var findings = [], users = [];
+  var seenIds = {}, seenEmails = {};
+  for (var r = 1; r < rows.length; r++) {
+    var row = rows[r];
+    var lineNumber = r + 1;
+    if (!row.length || row.every(function (c) { return !String(c).trim(); })) continue;
+    if (row.length !== header.length) {
+      findings.push(F("row " + lineNumber, "malformed-row", "error",
+        "row has " + row.length + " fields but the header has " + header.length + ", so the row was skipped"));
+      continue;
+    }
+    var cells = {};
+    header.forEach(function (n, i) { cells[n] = String(row[i]).trim(); });
+    var userId = cells[idColumn];
+    if (!userId) {
+      findings.push(F("row " + lineNumber, "missing-user-id", "error",
+        "row has no user id, so the user cannot be matched to a Zendesk record"));
+      userId = "row " + lineNumber;
+    }
+    if (seenIds[userId]) {
+      findings.push(F(userId, "duplicate-user-id", "error", "user id appears more than once in the export"));
+    } else seenIds[userId] = true;
+    var emailRaw = cells[emailColumn];
+    var email = emailRaw.trim().toLowerCase();
+    if (!emailRaw) {
+      findings.push(F(userId, "missing-email", "error", "user has no email address, so Zendesk cannot reach them at all"));
+    } else if (!EMAIL_PATTERN.test(email)) {
+      findings.push(F(userId, "invalid-email", "error", "email address " + pyRepr(emailRaw) + " is not a valid email address"));
+    } else if (seenEmails[email]) {
+      findings.push(F(userId, "duplicate-email", "error",
+        "email address " + emailRaw + " already appears in the export, so two records claim the same user"));
+    } else seenEmails[email] = true;
+    var roleRaw = cell(cells, roleColumn);
+    var role = normalizeRole(roleRaw);
+    if (roleColumn !== null && roleRaw && !role) {
+      findings.push(F(userId, "invalid-role", "error",
+        "role " + pyRepr(roleRaw) + " is not a known Zendesk role (end-user, agent, or admin)"));
+    }
+    var createdRaw = cell(cells, createdColumn);
+    var createdAt = null;
+    if (createdRaw) {
+      createdAt = parseTimestamp(createdRaw);
+      if (createdAt === null) {
+        findings.push(F(userId, "invalid-date", "error", "created date " + pyRepr(createdRaw) + " is not a readable date"));
+      } else if (createdAt.us > asOf.us) {
+        findings.push(F(userId, "future-timestamp", "error",
+          "created date " + fmtDateTime(createdAt) + " is after the as-of date " + fmtDateTime(asOf)));
+      }
+    }
+    var loginRaw = cell(cells, loginColumn);
+    var lastLogin = null;
+    if (loginRaw) {
+      lastLogin = parseTimestamp(loginRaw);
+      if (lastLogin === null) {
+        findings.push(F(userId, "invalid-date", "error", "last login date " + pyRepr(loginRaw) + " is not a readable date"));
+      } else if (lastLogin.us > asOf.us) {
+        findings.push(F(userId, "future-timestamp", "error",
+          "last login date " + fmtDateTime(lastLogin) + " is after the as-of date " + fmtDateTime(asOf)));
+      }
+    }
+    var openRaw = cell(cells, openColumn);
+    var openTickets = null;
+    if (openColumn !== null) {
+      if (!openRaw) {
+        findings.push(F(userId, "missing-ticket-count", "error", "user has no open ticket count recorded, so the queue cannot be checked"));
+      } else {
+        openTickets = parseCount(openRaw);
+        if (openTickets === null) {
+          findings.push(F(userId, "invalid-ticket-count", "error", "open ticket count " + pyRepr(openRaw) + " is not a non-negative number"));
+        }
+      }
+    }
+    var totalRaw = cell(cells, totalColumn);
+    var totalTickets = null;
+    if (totalColumn !== null) {
+      if (!totalRaw) {
+        findings.push(F(userId, "missing-ticket-count", "error", "user has no total ticket count recorded, so the history cannot be checked"));
+      } else {
+        totalTickets = parseCount(totalRaw);
+        if (totalTickets === null) {
+          findings.push(F(userId, "invalid-ticket-count", "error", "total ticket count " + pyRepr(totalRaw) + " is not a non-negative number"));
+        }
+      }
+    }
+    if (openTickets !== null && totalTickets !== null && openTickets > totalTickets) {
+      findings.push(F(userId, "open-exceeds-total", "error",
+        "user has " + openTickets + " open tickets but only " + totalTickets + " total tickets, which cannot both be true"));
+    }
+    var lastTicketRaw = cell(cells, lastTicketColumn);
+    var lastTicket = null;
+    if (lastTicketRaw) {
+      lastTicket = parseTimestamp(lastTicketRaw);
+      if (lastTicket === null) {
+        findings.push(F(userId, "invalid-date", "error", "last ticket date " + pyRepr(lastTicketRaw) + " is not a readable date"));
+      }
+    }
+    users.push({
+      id: userId, name: cell(cells, nameColumn), email: email, role: role,
+      verified: verifiedColumn !== null ? parseYesNo(cells[verifiedColumn]) : null,
+      hasVerifiedColumn: verifiedColumn !== null,
+      suspended: suspendedColumn !== null ? parseYesNo(cells[suspendedColumn]) : null,
+      hasSuspendedColumn: suspendedColumn !== null,
+      createdAt: createdAt, openTickets: openTickets, totalTickets: totalTickets
+    });
+  }
+  users.forEach(function (user) {
+    var userId = user.id;
+    var hasOpen = user.openTickets !== null && user.openTickets > 0;
+    if (user.hasVerifiedColumn && user.verified !== true) {
+      if (hasOpen) {
+        findings.push(F(userId, "unverified-email-open-tickets", "error",
+          "user " + (user.name || userId) + " has an unverified email address and " + user.openTickets + " open tickets, so replies will never reach them"));
+      } else if (unverifiedError) {
+        findings.push(F(userId, "unverified-email", "error", "user " + (user.name || userId) + " has an unverified email address"));
+      } else {
+        findings.push(F(userId, "unverified-email", "warning", "user " + (user.name || userId) + " has an unverified email address"));
+      }
+    }
+    if (user.hasSuspendedColumn && user.suspended === true) {
+      if (hasOpen) {
+        findings.push(F(userId, "suspended-with-open-tickets", "error",
+          "suspended user " + (user.name || userId) + " still has " + user.openTickets + " open tickets, so the queue is stuck on a user who cannot reply"));
+      } else {
+        findings.push(F(userId, "suspended-user", "warning",
+          "suspended user " + (user.name || userId) + " has no open tickets, so the account is safe to delete"));
+      }
+    }
+    if (user.totalTickets === 0) {
+      if (user.createdAt !== null) {
+        var ageDays = (asOf.us - user.createdAt.us) / 1000000 / 86400.0;
+        if (ageDays > staleDays) {
+          findings.push(F(userId, "no-tickets-user", "warning",
+            "user " + (user.name || userId) + " opened no tickets in " + fmt1(ageDays) + " days since signing up, so the account looks abandoned"));
+        }
+      } else {
+        findings.push(F(userId, "no-tickets-user", "warning",
+          "user " + (user.name || userId) + " opened no tickets and has no signup date, so the account cannot be aged"));
+      }
+    }
+  });
+  var errors = findings.filter(function (f) { return f.severity === "error"; }).length;
+  var warnings = findings.length - errors;
+  var userIdSet = {};
+  users.forEach(function (u) { userIdSet[u.id] = true; });
+  var usersWithErrors = {};
+  findings.forEach(function (f) { if (f.severity === "error" && userIdSet[f.user]) usersWithErrors[f.user] = true; });
+  var clean = users.filter(function (u) { return !usersWithErrors[u.id]; }).length;
+  function countRule(rule) { return findings.filter(function (f) { return f.rule === rule; }).length; }
+  var verifiedCount = users.filter(function (u) { return u.verified === true; }).length;
+  var suspendedCount = users.filter(function (u) { return u.suspended === true; }).length;
+  var openTotal = users.reduce(function (s, u) { return s + (u.openTickets || 0); }, 0);
+  var rateVal = users.length ? Math.round((100.0 * verifiedCount / users.length) * 10) / 10 : 0.0;
+  var rateStr = Number.isInteger(rateVal) ? rateVal.toFixed(1) : String(rateVal);
+  var rolesMap = {};
+  users.forEach(function (u) {
+    var role = u.role || "unknown";
+    (rolesMap[role] = rolesMap[role] || []).push(u);
+  });
+  var lines = findings.map(findingStr);
+  lines.push("");
+  lines.push("Users: " + users.length + ", findings: " + findings.length + ", errors: " + errors + ", warnings: " + warnings);
+  lines.push("Clean users: " + clean + " of " + users.length + " users");
+  lines.push("Duplicate users: " + (countRule("duplicate-email") + countRule("duplicate-user-id")) +
+    " (" + countRule("duplicate-email") + " duplicate emails), unverified emails: " +
+    (countRule("unverified-email") + countRule("unverified-email-open-tickets")) +
+    ", suspended with open tickets: " + countRule("suspended-with-open-tickets") +
+    ", suspended users: " + suspendedCount + ", users with no tickets: " + countRule("no-tickets-user") +
+    ", open tickets: " + openTotal + ", verified rate: " + rateStr + "%");
+  lines.push("");
+  lines.push("Per-role summary:");
+  Object.keys(rolesMap).sort().forEach(function (role) {
+    var roleUsers = rolesMap[role];
+    var idSet = {};
+    roleUsers.forEach(function (u) { idSet[u.id] = true; });
+    var roleErrors = findings.filter(function (f) { return f.severity === "error" && idSet[f.user]; }).length;
+    lines.push(role + ": " + roleUsers.length + " users, " + roleErrors + " errors");
+  });
+  if (findings.length === 0) { lines.push(""); lines.push("All users clean."); }
+  return lines.join("\n") + "\n";
+};
+</script>
+<script>
+var SAMPLE = "user_id,name,email,role,email_verified,suspended,created_at,last_login,open_tickets,total_tickets,last_ticket_date\nU-101,Alice Morgan,alice.morgan@example.com,end-user,yes,no,2024-01-10,2026-11-15,0,5,2026-11-10\nU-102,Ben Carter,ben.carter@example.com,end-user,no,no,2024-02-01,2026-11-12,2,4,2026-11-12\nU-103,Cara Diaz,cara.diaz@example.com,end-user,yes,yes,2023-06-15,2026-10-20,3,8,2026-11-05\nU-104,Dan Evans,dan.evans@example.com,end-user,yes,no,2023-03-01,2023-04-01,0,0,\nU-105,Emma Foster,emma.foster@example.com,end-user,no,no,2026-10-20,2026-11-17,0,1,2026-11-01\nU-106,Frank Green,frank.green@example.com,end-user,yes,no,2024-05-05,2026-11-14,0,3,2026-11-13\nU-107,Grace Hall,grace.hall@example.com,end-user,yes,no,2024-07-07,2026-11-10,1,2,2026-11-09\nU-108,Henry Ivers,henry.ivers@example.com,end-user,yes,no,2024-08-08,2026-11-08,0,6,2026-11-02\nU-109,Ivy Jones,ALICE.MORGAN@EXAMPLE.COM,end-user,yes,no,2025-01-01,2026-11-16,0,2,2026-11-15\nU-110,Jack King,jack.king@example.com,agent,yes,no,2023-09-09,2026-11-17,5,20,2026-11-17\nU-111,Karen Lee,karen.lee@example.com,end-user,yes,yes,2022-11-11,2024-01-01,0,1,2024-01-01\nU-112,Leo Martin,leo.martin@example.com,end-user,yes,no,2024-04-04,2026-11-11,0,0,\nU-113,Mia Nelson,mia.nelson@example.com,end-user,yes,no,2026-11-15,2026-11-17,0,0,\nU-114,Noah Owens,noah.owens@example.com,end-user,yes,no,2024-03-03,2026-11-06,4,2,2026-11-06\nU-115,Olivia Park,not-an-email,end-user,yes,no,2024-06-06,2026-11-05,0,1,2026-11-04\nU-116,Peter Quinn,peter.quinn@example.com,end-user,yes,no,not-a-date,2026-11-03,0,2,2026-11-02\nU-117,Quinn Ross,quinn.ross@example.com,end-user,yes,no,2026-12-05,2026-11-01,0,1,2026-11-01\nU-101,Rosa Stone,rosa.stone@example.com,end-user,yes,no,2025-05-05,2026-11-07,0,3,2026-11-06\nU-118,Sam Turner,sam.turner@example.com,end-user,yes,no,2024-09-09,2026-11-04,0,1,2026-11-03,extra-field\n,Tom Underwood,tom.underwood@example.com,end-user,yes,no,2024-10-10,2026-11-02,0,1,2026-11-01\nU-119,Uma Vance,uma.vance@example.com,end-user,yes,no,2024-11-11,2026-11-01,abc,1,2026-10-30\nU-120,Victor Wade,victor.wade@example.com,superuser,yes,no,2024-12-12,2026-11-01,0,1,2026-10-29\n";
+var SAMPLE_CLEAN = "user_id,name,email,role,email_verified,suspended,created_at,last_login,open_tickets,total_tickets,last_ticket_date\nU-301,Alice Morgan,alice.morgan@example.com,end-user,yes,no,2024-01-10,2026-11-15,0,5,2026-11-10\nU-302,Frank Green,frank.green@example.com,end-user,yes,no,2024-05-05,2026-11-14,0,3,2026-11-13\nU-303,Grace Hall,grace.hall@example.com,end-user,yes,no,2024-07-07,2026-11-10,1,2,2026-11-09\nU-304,Henry Ivers,henry.ivers@example.com,end-user,yes,no,2024-08-08,2026-11-08,0,6,2026-11-02\nU-305,Jack King,jack.king@example.com,agent,yes,no,2023-09-09,2026-11-17,5,20,2026-11-17\n";
+var SAMPLE_WARNINGS = "user_id,name,email,role,email_verified,suspended,created_at,last_login,open_tickets,total_tickets,last_ticket_date\nU-401,Dan Evans,dan.evans@example.com,end-user,yes,no,2023-03-01,2023-04-01,0,0,\nU-402,Emma Foster,emma.foster@example.com,end-user,no,no,2026-10-20,2026-11-17,0,1,2026-11-01\nU-403,Karen Lee,karen.lee@example.com,end-user,yes,yes,2022-11-11,2024-01-01,0,1,2024-01-01\n";
+var inputEl = document.getElementById("input");
+var outEl = document.getElementById("out");
+var lastReport = "";
+document.getElementById("file").addEventListener("change", function (ev) {
+  var f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function () { inputEl.value = String(reader.result || ""); };
+  reader.readAsText(f);
+});
+document.getElementById("sample").addEventListener("click", function () { inputEl.value = SAMPLE; });
+document.getElementById("sample-clean").addEventListener("click", function () { inputEl.value = SAMPLE_CLEAN; });
+document.getElementById("sample-warnings").addEventListener("click", function () { inputEl.value = SAMPLE_WARNINGS; });
+document.getElementById("run").addEventListener("click", function () {
+  var options = { staleDays: document.getElementById("opt-stale").value, asOf: document.getElementById("opt-asof").value, unverifiedError: document.getElementById("opt-unverified").checked };
+  try {
+    lastReport = window.runTool(inputEl.value, options);
+    outEl.textContent = lastReport;
+  } catch (e) {
+    lastReport = "ERROR: " + e.message + "\n";
+    outEl.textContent = lastReport;
+  }
+});
+document.getElementById("download").addEventListener("click", function () {
+  var text = lastReport || outEl.textContent;
+  var blob = new Blob([text], { type: "text/plain" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "zendesk-user-report.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>

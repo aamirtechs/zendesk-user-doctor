@@ -1,0 +1,6 @@
+user_id,name,email,role,email_verified,suspended,created_at,last_login,open_tickets,total_tickets,last_ticket_date
+U-301,Alice Morgan,alice.morgan@example.com,end-user,yes,no,2024-01-10,2026-11-15,0,5,2026-11-10
+U-302,Frank Green,frank.green@example.com,end-user,yes,no,2024-05-05,2026-11-14,0,3,2026-11-13
+U-303,Grace Hall,grace.hall@example.com,end-user,yes,no,2024-07-07,2026-11-10,1,2,2026-11-09
+U-304,Henry Ivers,henry.ivers@example.com,end-user,yes,no,2024-08-08,2026-11-08,0,6,2026-11-02
+U-305,Jack King,jack.king@example.com,agent,yes,no,2023-09-09,2026-11-17,5,20,2026-11-17
